@@ -1,5 +1,6 @@
 from __future__ import unicode_literals
 
+import io
 import os
 import subprocess
 import time
@@ -8,7 +9,6 @@ import re
 
 from .common import AudioConversionError, PostProcessor
 
-from ..compat import compat_open as open
 from ..utils import (
     encodeArgument,
     encodeFilename,
@@ -493,7 +493,7 @@ class FFmpegMetadataPP(FFmpegPostProcessor):
         chapters = info.get('chapters', [])
         if chapters:
             metadata_filename = replace_extension(filename, 'meta')
-            with open(metadata_filename, 'w', encoding='utf-8') as f:
+            with io.open(metadata_filename, 'wt', encoding='utf-8') as f:
                 def ffmpeg_escape(text):
                     return re.sub(r'(=|;|#|\\|\n)', r'\\\1', text)
 
@@ -636,7 +636,7 @@ class FFmpegSubtitlesConvertorPP(FFmpegPostProcessor):
                 with open(dfxp_file, 'rb') as f:
                     srt_data = dfxp2srt(f.read())
 
-                with open(srt_file, 'w', encoding='utf-8') as f:
+                with io.open(srt_file, 'wt', encoding='utf-8') as f:
                     f.write(srt_data)
                 old_file = srt_file
 
@@ -652,7 +652,7 @@ class FFmpegSubtitlesConvertorPP(FFmpegPostProcessor):
 
             self.run_ffmpeg(old_file, new_file, ['-f', new_format])
 
-            with open(new_file, 'r', encoding='utf-8') as f:
+            with io.open(new_file, 'rt', encoding='utf-8') as f:
                 subs[lang] = {
                     'ext': new_ext,
                     'data': f.read(),

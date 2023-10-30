@@ -1,16 +1,14 @@
 from __future__ import unicode_literals
 
 import errno
+import io
 import json
 import os
 import re
 import shutil
 import traceback
 
-from .compat import (
-    compat_getenv,
-    compat_open as open,
-)
+from .compat import compat_getenv
 from .utils import (
     error_to_compat_str,
     expand_path,
@@ -85,7 +83,7 @@ class Cache(object):
         cache_fn = self._get_cache_fn(section, key, dtype)
         try:
             try:
-                with open(cache_fn, 'r', encoding='utf-8') as cachef:
+                with io.open(cache_fn, 'r', encoding='utf-8') as cachef:
                     return self._validate(json.load(cachef), min_ver)
             except ValueError:
                 try:

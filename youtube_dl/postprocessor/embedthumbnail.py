@@ -18,8 +18,6 @@ from ..utils import (
     shell_quote,
 )
 
-from ..compat import compat_open as open
-
 
 class EmbedThumbnailPPError(PostProcessingError):
     pass

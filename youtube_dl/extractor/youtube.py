@@ -31,7 +31,6 @@ from ..utils import (
     extract_attributes,
     get_element_by_attribute,
     int_or_none,
-    join_nonempty,
     js_to_json,
     LazyList,
     merge_dicts,
@@ -46,7 +45,6 @@ from ..utils import (
     str_to_int,
     traverse_obj,
     try_get,
-    txt_or_none,
     unescapeHTML,
     unified_strdate,
     unsmuggle_url,
@@ -448,7 +446,7 @@ class YoutubeBaseInfoExtractor(InfoExtractor):
             extract_attributes(self._search_regex(
                 r'''(?s)(<link\b[^>]+\bitemprop\s*=\s*("|')%s\2[^>]*>)'''
                 % re.escape(var_name),
-                get_element_by_attribute('itemprop', 'author', webpage or '') or '',
+                get_element_by_attribute('itemprop', 'author', webpage) or '',
                 'author link', default='')),
             paths[var_name][0])
 
@@ -1570,9 +1568,7 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
             jscode, 'Initial JS player signature function name', group='sig')
 
         jsi = JSInterpreter(jscode)
-
         initial_function = jsi.extract_function(funcname)
-
         return lambda s: initial_function([s])
 
     def _decrypt_signature(self, s, video_id, player_url):
@@ -1623,22 +1619,15 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
         nfunc, idx = re.match(target, nfunc_and_idx).group('nfunc', 'idx')
         if not idx:
             return nfunc
-
-        VAR_RE_TMPL = r'var\s+%s\s*=\s*(?P<name>\[(?P<alias>%s)\])[;,]'
-        note = 'Initial JS player n function {0} (%s[%s])' % (nfunc, idx)
-
-        def search_function_code(needle, group):
-            return self._search_regex(
-                VAR_RE_TMPL % (re.escape(nfunc), needle), jscode,
-                note.format(group), group=group)
-
         if int_or_none(idx) == 0:
-            real_nfunc = search_function_code(r'[a-zA-Z_$][\w$]*', group='alias')
+            real_nfunc = self._search_regex(
+                r'var %s\s*=\s*\[([a-zA-Z_$][\w$]*)\];' % (re.escape(nfunc), ), jscode,
+                'Initial JS player n function alias ({nfunc}[{idx}])'.format(**locals()))
             if real_nfunc:
                 return real_nfunc
-        return self._parse_json(
-            search_function_code('.+?', group='name'),
-            nfunc, transform_source=js_to_json)[int(idx)]
+        return self._parse_json(self._search_regex(
+            r'var %s\s*=\s*(\[.+?\]);' % (re.escape(nfunc), ), jscode,
+            'Initial JS player n function name ({nfunc}[{idx}])'.format(**locals())), nfunc, transform_source=js_to_json)[int(idx)]
 
     def _extract_n_function(self, video_id, player_url):
         player_id = self._extract_player_info(player_url)
@@ -2620,17 +2609,6 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
         },
         'playlist_mincount': 75,
     }, {
-        # Releases tab
-        'url': 'https://www.youtube.com/@daftpunk/releases',
-        'info_dict': {
-            'id': 'UC_kRDKYrUlrbtrSiyu5Tflg',
-            'title': 'Daft Punk - Releases',
-            'description': 'Daft Punk (1993 - 2021) - Official YouTube Channel',
-            'uploader_id': '@daftpunk',
-            'uploader': 'Daft Punk',
-        },
-        'playlist_mincount': 36,
-    }, {
         'url': 'https://invidio.us/channel/UCmlqkdCBesrv2Lak1mF_MxA',
         'only_matching': True,
     }, {
@@ -2844,12 +2822,6 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
                 continue
             return renderer
 
-    @staticmethod
-    def _get_text(r, k):
-        return traverse_obj(
-            r, (k, 'runs', 0, 'text'), (k, 'simpleText'),
-            expected_type=txt_or_none)
-
     def _grid_entries(self, grid_renderer):
         for item in grid_renderer['items']:
             if not isinstance(item, dict):
@@ -2857,7 +2829,9 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
             renderer = self._extract_grid_item_renderer(item)
             if not isinstance(renderer, dict):
                 continue
-            title = self._get_text(renderer, 'title')
+            title = try_get(
+                renderer, (lambda x: x['title']['runs'][0]['text'],
+                           lambda x: x['title']['simpleText']), compat_str)
             # playlist
             playlist_id = renderer.get('playlistId')
             if playlist_id:
@@ -2874,7 +2848,8 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
             # channel
             channel_id = renderer.get('channelId')
             if channel_id:
-                title = self._get_text(renderer, 'title')
+                title = try_get(
+                    renderer, lambda x: x['title']['simpleText'], compat_str)
                 yield self.url_result(
                     'https://www.youtube.com/channel/%s' % channel_id,
                     ie=YoutubeTabIE.ie_key(), video_title=title)
@@ -2983,26 +2958,15 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
 
     def _rich_grid_entries(self, contents):
         for content in contents:
-            content = traverse_obj(
-                content, ('richItemRenderer', 'content'),
-                expected_type=dict) or {}
-            video_renderer = traverse_obj(
-                content, 'videoRenderer', 'reelItemRenderer',
-                expected_type=dict)
+            video_renderer = try_get(
+                content,
+                (lambda x: x['richItemRenderer']['content']['videoRenderer'],
+                 lambda x: x['richItemRenderer']['content']['reelItemRenderer']),
+                dict)
             if video_renderer:
                 entry = self._video_entry(video_renderer)
                 if entry:
                     yield entry
-            # playlist
-            renderer = traverse_obj(
-                content, 'playlistRenderer', expected_type=dict) or {}
-            title = self._get_text(renderer, 'title')
-            playlist_id = renderer.get('playlistId')
-            if playlist_id:
-                yield self.url_result(
-                    'https://www.youtube.com/playlist?list=%s' % playlist_id,
-                    ie=YoutubeTabIE.ie_key(), video_id=playlist_id,
-                    video_title=title)
 
     @staticmethod
     def _build_continuation_query(continuation, ctp=None):
@@ -3107,7 +3071,6 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
                 return
             for entry in self._rich_grid_entries(rich_grid_renderer.get('contents') or []):
                 yield entry
-
             continuation = self._extract_continuation(rich_grid_renderer)
 
         ytcfg = self._extract_ytcfg(item_id, webpage)
@@ -3250,41 +3213,50 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
         uploader['channel'] = uploader['uploader']
         return uploader
 
-    @classmethod
-    def _extract_alert(cls, data):
+    @staticmethod
+    def _extract_alert(data):
         alerts = []
-        for alert in traverse_obj(data, ('alerts', Ellipsis), expected_type=dict):
-            alert_text = traverse_obj(
-                alert, (None, lambda x: x['alertRenderer']['text']), get_all=False)
+        for alert in try_get(data, lambda x: x['alerts'], list) or []:
+            if not isinstance(alert, dict):
+                continue
+            alert_text = try_get(
+                alert, lambda x: x['alertRenderer']['text'], dict)
             if not alert_text:
                 continue
-            text = cls._get_text(alert_text, 'text')
+            text = try_get(
+                alert_text,
+                (lambda x: x['simpleText'], lambda x: x['runs'][0]['text']),
+                compat_str)
             if text:
                 alerts.append(text)
         return '\n'.join(alerts)
 
     def _extract_from_tabs(self, item_id, webpage, data, tabs):
         selected_tab = self._extract_selected_tab(tabs)
-        renderer = traverse_obj(data, ('metadata', 'channelMetadataRenderer'),
-                                expected_type=dict) or {}
+        renderer = try_get(
+            data, lambda x: x['metadata']['channelMetadataRenderer'], dict)
         playlist_id = item_id
         title = description = None
         if renderer:
-            channel_title = txt_or_none(renderer.get('title')) or item_id
-            tab_title = txt_or_none(selected_tab.get('title'))
-            title = join_nonempty(
-                channel_title or item_id, tab_title,
-                txt_or_none(selected_tab.get('expandedText')),
-                delim=' - ')
-            description = txt_or_none(renderer.get('description'))
-            playlist_id = txt_or_none(renderer.get('externalId')) or playlist_id
+            channel_title = renderer.get('title') or item_id
+            tab_title = selected_tab.get('title')
+            title = channel_title or item_id
+            if tab_title:
+                title += ' - %s' % tab_title
+            if selected_tab.get('expandedText'):
+                title += ' - %s' % selected_tab['expandedText']
+            description = renderer.get('description')
+            playlist_id = renderer.get('externalId')
         else:
-            renderer = traverse_obj(data,
-                                    ('metadata', 'playlistMetadataRenderer'),
-                                    ('header', 'hashtagHeaderRenderer'),
-                                    expected_type=dict) or {}
-            title = traverse_obj(renderer, 'title', ('hashtag', 'simpleText'),
-                                 expected_type=txt_or_none)
+            renderer = try_get(
+                data, lambda x: x['metadata']['playlistMetadataRenderer'], dict)
+            if renderer:
+                title = renderer.get('title')
+            else:
+                renderer = try_get(
+                    data, lambda x: x['header']['hashtagHeaderRenderer'], dict)
+                if renderer:
+                    title = try_get(renderer, lambda x: x['hashtag']['simpleText'])
         playlist = self.playlist_result(
             self._entries(selected_tab, item_id, webpage),
             playlist_id=playlist_id, playlist_title=title,
@@ -3292,16 +3264,15 @@ class YoutubeTabIE(YoutubeBaseInfoExtractor):
         return merge_dicts(playlist, self._extract_uploader(renderer, data))
 
     def _extract_from_playlist(self, item_id, url, data, playlist):
-        title = traverse_obj((playlist, data),
-                             (0, 'title'), (1, 'titleText', 'simpleText'),
-                             expected_type=txt_or_none)
-        playlist_id = txt_or_none(playlist.get('playlistId')) or item_id
+        title = playlist.get('title') or try_get(
+            data, lambda x: x['titleText']['simpleText'], compat_str)
+        playlist_id = playlist.get('playlistId') or item_id
         # Inline playlist rendition continuation does not always work
         # at Youtube side, so delegating regular tab-based playlist URL
         # processing whenever possible.
-        playlist_url = urljoin(url, traverse_obj(
-            playlist, ('endpoint', 'commandMetadata', 'webCommandMetadata', 'url'),
-            expected_type=url_or_none))
+        playlist_url = urljoin(url, try_get(
+            playlist, lambda x: x['endpoint']['commandMetadata']['webCommandMetadata']['url'],
+            compat_str))
         if playlist_url and playlist_url != url:
             return self.url_result(
                 playlist_url, ie=YoutubeTabIE.ie_key(), video_id=playlist_id,
