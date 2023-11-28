@@ -201,6 +201,9 @@ class HttpFD(FileDownloader):
             MAX_RETRIES = 3
             # Initialize the retry counter
             retry_counter = 0
+            # Initialize the startup delay (in seconds)
+            STARTUP_DELAY = 5  # Wait for 5 seconds before checking speed
+            startup_time = time.time()  # Record the startup time
             data_len = ctx.data.info().get('Content-length', None)
 
             # Range HTTP header may be ignored/unsupported by a webserver
@@ -312,18 +315,24 @@ class HttpFD(FileDownloader):
                     'speed': speed,
                     'elapsed': now - ctx.start_time,
                 })
+                if time.time() - startup_time < STARTUP_DELAY:
+                    continue  # Skip speed check during the startup delay
+
+                # Speed check and retry logic
+                speed = self.calc_speed(start, now, byte_counter - ctx.resume_len)
                 if speed is None or speed < MIN_DOWNLOAD_RATE:
                     retry_counter += 1
                 if retry_counter > MAX_RETRIES:
                     self.report_error('Download rate too low after {} retries, stopping download.'.format(MAX_RETRIES))
                     return False
                 else:
-                    self.report_warning('Download rate too low, retrying {}/{}...'.format(retry_counter, MAX_RETRIES))
-                    # Reset the byte_counter to the last known good position
-                    byte_counter = ctx.resume_len
-                    # Sleep for a bit before retrying to avoid hammering the server
-                    time.sleep(2 ** retry_counter)  # Exponential back-off
-                    continue  # Skip the rest of the loop and retry
+                    if retry_counter > 0:
+                        self.report_warning('Download rate too low, retrying {}/{}...'.format(retry_counter, MAX_RETRIES))
+                        # Reset the byte_counter to the last known good position
+                        byte_counter = ctx.resume_len
+                        # Sleep for a bit before retrying to avoid hammering the server
+                        time.sleep(2 ** retry_counter)  # Exponential back-off
+                        continue  # Skip the rest of the loop and retry
                                 
 
                 if data_len is not None and byte_counter == data_len:
@@ -379,4 +388,3 @@ class HttpFD(FileDownloader):
 
         self.report_error('giving up after %s retries' % retries)
         return False
-
