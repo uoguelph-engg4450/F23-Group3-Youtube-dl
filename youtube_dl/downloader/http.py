@@ -324,6 +324,7 @@ class HttpFD(FileDownloader):
                     retry_counter += 1
                 if retry_counter > MAX_RETRIES:
                     self.report_error('Download rate too low after {} retries, stopping download.'.format(MAX_RETRIES))
+                    raise RuntimeError("Error: Retry limit exceeded")
                     return False
                 else:
                     if retry_counter > 0:
