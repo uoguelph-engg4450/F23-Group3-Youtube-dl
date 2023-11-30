@@ -96,13 +96,15 @@ class TestHttpFD(unittest.TestCase):
         # rate is set to high in http.py)
         #Takes 100 seconds to run
         with self.assertRaises(DownloadError):
-            downloader.real_download(filename, {
-                'url': 'https://www.youtube.com/watch?v=H3dJWJ2pE9U',
-            })
+            downloader.real_download(filename, {'url':'https://www.youtube.com/watch?v=H3dJWJ2pE9U'})
 
     def download_all(self, params):
-        for ep in ('regular'):
+        for ep in ['/regular', '/no-content-length', '/no-range', '/no-range-no-content-length']:
             self.download(params, ep)
 
     def test_regular(self):
         self.download_all({})
+if __name__ == '__main__':
+    unittest.main()
+        
+    
