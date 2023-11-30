@@ -196,13 +196,13 @@ class HttpFD(FileDownloader):
 
         def download():
             # Define the minimum download rate threshold (in bytes per second)
-            MIN_DOWNLOAD_RATE = 10000  # for example, 10 KB/s
+            MIN_DOWNLOAD_RATE = 1000000000  # for example, 10 KB/s
             # Define the maximum number of retries
             MAX_RETRIES = 3
             # Initialize the retry counter
             retry_counter = 0
             # Initialize the startup delay (in seconds)
-            STARTUP_DELAY = 5  # Wait for 5 seconds before checking speed
+            STARTUP_DELAY = 0  # Wait for 5 seconds before checking speed
             startup_time = time.time()  # Record the startup time
             data_len = ctx.data.info().get('Content-length', None)
 
@@ -324,7 +324,6 @@ class HttpFD(FileDownloader):
                     retry_counter += 1
                 if retry_counter > MAX_RETRIES:
                     self.report_error('Download rate too low after {} retries, stopping download.'.format(MAX_RETRIES))
-                    raise RuntimeError("Error: Retry limit exceeded")
                     return False
                 else:
                     if retry_counter > 0:
